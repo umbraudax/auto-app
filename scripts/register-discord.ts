@@ -23,8 +23,8 @@ const definitions = [
       choices: statuses.map((state) => ({ name: state, value: state })) },
   ] },
   { name: "resume", description: "Manage your private resume library", options: [
-    { type: 1, name: "upload", description: "Upload a PDF resume", options: [
-      { type: 11, name: "file", description: "PDF resume up to 8 MB", required: true },
+    { type: 1, name: "upload", description: "Upload a DOCX resume", options: [
+      { type: 11, name: "file", description: "DOCX resume up to 8 MB", required: true },
       { type: 5, name: "set_default", description: "Use this resume for future previews" },
     ] },
     { type: 1, name: "list", description: "List your uploaded resumes and the default", options: [

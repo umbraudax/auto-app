@@ -18,8 +18,8 @@ export const criteriaSchema = z.object({
 export type Criteria = z.infer<typeof criteriaSchema>;
 
 export const resumeSchema = z.object({
-  pathname: z.string().regex(/^resumes\/[a-zA-Z0-9/_-]+\.pdf$/),
-  filename: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._ -]{0,90}\.pdf$/),
+  pathname: z.string().regex(/^resumes\/[a-zA-Z0-9/_-]+\.(?:pdf|docx)$/i),
+  filename: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._ -]{0,90}\.(?:pdf|docx)$/i),
   version: z.string().min(1).max(100),
 });
 export type Resume = z.infer<typeof resumeSchema>;

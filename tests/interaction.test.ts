@@ -45,7 +45,7 @@ test("an answer modal binds the response to one application and one prompt", () 
 
 test("resume upload reads a signed Discord attachment option", () => {
   const id = "100000000000000002";
-  const file = { id, filename: "Resume.pdf", size: 500, url: `https://cdn.discordapp.com/attachments/100000000000000003/${id}/Resume.pdf?ex=example` };
+  const file = { id, filename: "Resume.docx", size: 500, url: `https://cdn.discordapp.com/attachments/100000000000000003/${id}/Resume.docx?ex=example` };
   const base = {
     id: "100000000000000000", application_id: "100000000000000001", token: "fake", type: 2,
   };

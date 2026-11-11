@@ -1,14 +1,34 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import test from "node:test";
 import { chromium } from "playwright-core";
 import { isolate, prepareForm } from "../lib/browser";
+import { docxMimeType } from "../lib/resume-file";
+import { docx } from "./resume-fixture";
 
-const profile = { firstName: "Test", lastName: "Applicant", email: "test@example.com" };
-
-test("an unknown required answer stops preparation and a later run previews it offline", {
+test("an unknown answer stops preparation and a later offline preview attaches the DOCX", {
   skip: !process.env.TEST_CHROMIUM_PATH,
   timeout: 40_000,
-}, async () => {
+}, async (t) => {
+  const resume = { pathname: "resumes/test.docx", filename: "Test Resume.docx", version: "fixture" };
+  const profile = { firstName: "Test", lastName: "Applicant", email: "test@example.com", resume };
+  const { MockAgent, getGlobalDispatcher, setGlobalDispatcher } = createRequire(require.resolve("@vercel/blob"))("undici") as typeof import("undici");
+  const dispatcher = getGlobalDispatcher();
+  const mock = new MockAgent();
+  mock.disableNetConnect();
+  mock.get("https://teststore.private.blob.vercel-storage.com").intercept({ path: "/resumes/test.docx" }).reply(200, docx, {
+    headers: { "content-length": String(docx.length), "content-type": docxMimeType },
+  });
+  const previousToken = process.env.BLOB_READ_WRITE_TOKEN;
+  process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_teststore_test";
+  setGlobalDispatcher(mock);
+  t.after(async () => {
+    setGlobalDispatcher(dispatcher);
+    if (previousToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
+    else process.env.BLOB_READ_WRITE_TOKEN = previousToken;
+    await mock.close();
+  });
+
   const browser = await chromium.launch({ executablePath: process.env.TEST_CHROMIUM_PATH, headless: true });
   try {
     const context = await browser.newContext({ serviceWorkers: "block" });
@@ -19,6 +39,7 @@ test("an unknown required answer stops preparation and a later run previews it o
         <label>First Name <input id="first_name" required></label>
         <label>Last Name <input id="last_name" required></label>
         <label>Email <input id="email" type="email" required></label>
+        <label>Resume <input id="resume" type="file" accept=".docx" required></label>
         <label for="auth">Are you authorized to work?</label>
         <select id="auth" required>
           <option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option>
@@ -77,10 +98,17 @@ test("an unknown required answer stops preparation and a later run previews it o
     assert.equal(outcome.type, "preview");
     if (outcome.type !== "preview") return;
     assert.ok(outcome.image.length > 100);
+    assert.equal(outcome.resumeVersion, resume.version);
     assert.equal(outcome.memoryAnswers, 1);
     assert.equal(await form.locator("#first_name").inputValue(), "Test");
     assert.equal(await form.locator("#auth").inputValue(), "yes");
     assert.equal(await form.locator(".select__single-value").textContent(), "Summer");
+    const file = await form.locator("#resume").evaluate((input: HTMLInputElement) => {
+      const selected = input.files?.[0];
+      return selected && { name: selected.name, type: selected.type, size: selected.size };
+    });
+    assert.deepEqual(file, { name: resume.filename, type: docxMimeType, size: docx.length });
+    mock.assertNoPendingInterceptors();
     assert.equal(await page.evaluate("window.attempt"), "blocked");
     assert.equal(await page.evaluate("window.submitCount"), 0);
   } finally {

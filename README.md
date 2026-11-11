@@ -12,7 +12,7 @@ Autoapp runs in **dry-run mode**. Apply queues a Greenhouse preview or creates a
 4. Set `JOB_BOARDS_JSON` to the employers you want to follow. Each entry has a source of `greenhouse`, `lever`, or `ashby`, the employer's board slug, and the company name you want Discord to display. Set `region` to `eu` for Lever EU boards. No employer is configured by default. Put the role, location, season, and eligibility requirements in `CRITERIA_JSON`. Avoid including personal identifiers in the criteria sent to Claude.
 5. Create a Discord application and bot. Install it in your server with the `bot` and `applications.commands` scopes. Give it View Channel, Send Messages, Embed Links, Attach Files, Create Public Threads, Send Messages in Threads, and Read Message History in one **private text channel** that only you and the bot can see. Application previews can contain applicant information. Put that channel's ID, the server ID, your Discord user ID, the application ID, public key, and bot token in the environment.
 6. Deploy the Next.js project to Vercel with a random `CRON_SECRET`. Set Discord's Interactions Endpoint URL to your production URL plus `/api/discord`. Register the guild commands with `npm run discord:register`. Only the configured Discord user in the configured server can invoke them.
-7. Use `/resume upload` in Discord to add a PDF and select it as the default. Run `/discover` to check the feeds. Use Apply on a Greenhouse match, answer any questions in its thread, and inspect the preview. Start with a test profile. Vercel Blob stores the screenshot and the bot attaches it to the configured private Discord channel's thread.
+7. Use `/resume upload` in Discord to add a DOCX and select it as the default. Run `/discover` to check the feeds. Use Apply on a Greenhouse match, answer any questions in its thread, and inspect the preview. Start with a test profile. Vercel Blob stores the screenshot and the bot attaches it to the configured private Discord channel's thread.
 
 For an existing deployment, apply the database migration with `npm run db:migrate`, deploy the updated app, then run `npm run discord:register` to add the resume commands.
 
@@ -28,12 +28,14 @@ For an existing deployment, apply the database migration with `npm run db:migrat
 | `/criteria` | Show or update the search criteria, title terms, score cutoff, and automatic preview threshold. A threshold of 101 keeps every match behind the Apply button. |
 | `/skipcompany` | Skip the company's pending and future matches. |
 | `/record` | Mark a manually handled application as submitted, confirmed, rejected, or interview from its thread. |
-| `/resume upload file:<PDF> set_default:true` | Store a PDF up to 8 MB privately. The first resume becomes the default automatically. Set `set_default:true` to replace the current default. |
+| `/resume upload file:<DOCX> set_default:true` | Store a DOCX up to 8 MB privately. The first resume becomes the default automatically. Set `set_default:true` to replace the current default. |
 | `/resume list` | List uploaded resumes, their IDs, and the current default. |
 | `/resume default id:<ID>` | Select the resume that future previews will attach. |
 | `/resume delete id:<ID>` | Remove a resume from the library and private storage. Deleting the default selects the newest remaining resume. |
 
 An existing `APPLICANT_PROFILE_JSON.resume` is imported when the resume library is first used. After that, Discord manages the default and can delete the imported file.
+
+PDFs already in the library remain available for previews.
 
 ## How previews work
 

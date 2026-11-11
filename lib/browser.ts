@@ -5,6 +5,7 @@ import { z } from "zod";
 import { claudeJson } from "./claude";
 import { profileSchema, required } from "./config";
 import { defaultResume } from "./resumes";
+import { maxResumeBytes, resumeMimeType } from "./resume-file";
 import { greenhouseFormUrl, normalize } from "./feeds";
 import type { Question } from "./schema";
 import { answerFor } from "./state";
@@ -160,10 +161,11 @@ type ResolveQuestions = (questions: Question[]) => Promise<ReadonlyMap<string, s
 
 async function attachResume(control: Locator, resume: NonNullable<Profile["resume"]>) {
   const object = await get(resume.pathname, { access: "private" });
-  if (!object || object.statusCode !== 200 || object.blob.size > 8_000_000) throw new Error("Resume file is unavailable");
+  if (!object || object.statusCode !== 200 || object.blob.size > maxResumeBytes) throw new Error("Resume file is unavailable");
   const buffer = Buffer.from(await new Response(object.stream).arrayBuffer());
-  if (buffer.subarray(0, 5).toString() !== "%PDF-") throw new Error("Resume file is not a PDF");
-  await control.setInputFiles({ name: resume.filename, mimeType: "application/pdf", buffer });
+  const mimeType = resumeMimeType(resume.filename, buffer);
+  if (!mimeType) throw new Error("Resume file does not match its format");
+  await control.setInputFiles({ name: resume.filename, mimeType, buffer });
 }
 
 function escapeAttribute(value: string) {

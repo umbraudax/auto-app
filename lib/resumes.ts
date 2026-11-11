@@ -3,16 +3,16 @@ import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { resumeSchema, type Resume } from "./config";
 import { db, type Transaction } from "./db";
 import { withReceipt } from "./receipts";
+import { docxMimeType, maxResumeBytes, resumeMimeType } from "./resume-file";
 import { interactions, resumes, resumeSettings } from "./schema";
 
-export const maxResumeBytes = 8_000_000;
 const pageSize = 12;
 const ready = and(isNotNull(resumes.uploadedAt), isNull(resumes.deleteRequestedAt));
 
 const privateStorage = {
-  async upload(pathname: string, pdf: Buffer) {
-    await put(pathname, pdf, {
-      access: "private", contentType: "application/pdf", allowOverwrite: true,
+  async upload(pathname: string, document: Buffer) {
+    await put(pathname, document, {
+      access: "private", contentType: docxMimeType, allowOverwrite: true,
       abortSignal: AbortSignal.timeout(20_000),
     });
   },
@@ -62,9 +62,9 @@ export async function defaultResume(legacy?: Resume): Promise<Resume | undefined
   });
 }
 
-async function downloadPdf(file: Attachment) {
+async function downloadDocx(file: Attachment) {
   const url = new URL(file.url);
-  if (!isDiscordAttachment(url) || !/\.pdf$/i.test(file.filename) || file.size > maxResumeBytes) return;
+  if (!isDiscordAttachment(url) || !/\.docx$/i.test(file.filename) || file.size > maxResumeBytes) return;
   const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(12_000) });
   if (!response.ok || !response.body || Number(response.headers.get("content-length")) > maxResumeBytes) return;
 
@@ -86,23 +86,23 @@ async function downloadPdf(file: Attachment) {
     reader.releaseLock();
   }
   const content = Buffer.concat(chunks, length);
-  if (length !== file.size || content.subarray(0, 5).toString() !== "%PDF-") return;
+  if (length !== file.size || resumeMimeType(file.filename, content) !== docxMimeType) return;
   return content;
 }
 
 function safeFilename(filename: string) {
-  const stem = filename.slice(0, -4).normalize("NFKC").replace(/[^a-zA-Z0-9._ -]/g, "_")
+  const stem = filename.replace(/\.docx$/i, "").normalize("NFKC").replace(/[^a-zA-Z0-9._ -]/g, "_")
     .replace(/^[^a-zA-Z0-9]+/, "").trim().slice(0, 91);
-  return `${stem || "Resume"}.pdf`;
+  return `${stem || "Resume"}.docx`;
 }
 
 async function uploadResume(interactionId: string, file: Attachment, makeDefault: boolean, storage: typeof privateStorage) {
   const [prior] = await db().select().from(interactions).where(eq(interactions.id, interactionId));
   if (prior) return prior.reply;
-  const pdf = await downloadPdf(file);
-  if (!pdf) return "Attach a valid PDF resume under 8 MB.";
+  const document = await downloadDocx(file);
+  if (!document) return "Attach a valid .docx resume up to 8 MB.";
 
-  const pathname = `resumes/discord-${interactionId}.pdf`;
+  const pathname = `resumes/discord-${interactionId}.docx`;
   const filename = safeFilename(file.filename);
   await db().insert(resumes).values({ pathname, filename, version: `discord-${interactionId}` }).onConflictDoNothing();
 
@@ -111,7 +111,7 @@ async function uploadResume(interactionId: string, file: Attachment, makeDefault
     const [record] = await tx.select().from(resumes).where(eq(resumes.pathname, pathname)).for("update");
     if (!record || record.deleteRequestedAt) throw new Error("Resume upload expired");
     if (!record.uploadedAt) {
-      await storage.upload(pathname, pdf);
+      await storage.upload(pathname, document);
       await tx.update(resumes).set({ uploadedAt: new Date() }).where(eq(resumes.id, record.id));
     }
     const selected = makeDefault || !library.defaultResumeId;
