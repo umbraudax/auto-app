@@ -15,6 +15,13 @@
       "when": 1794378772959,
       "tag": "0001_answer_memory_and_resumes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794418939634,
+      "tag": "0002_automatic_board_registry",
+      "breakpoints": true
     }
   ]
 }

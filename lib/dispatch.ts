@@ -5,7 +5,7 @@ import { boards, required, type Board } from "./config";
 
 export function dispatch(kind: "discover" | "process" | "digest", selected?: Board[], notify = false) {
   const targets = kind === "discover" ? selected ?? boards() : [];
-  return start(pipeline, [kind, targets, new Date().toISOString().slice(0, 10), notify]);
+  return start(pipeline, [kind, targets, new Date().toISOString().slice(0, 10), notify, kind === "discover" && selected === undefined]);
 }
 
 export async function cron(request: Request, kind: "discover" | "digest") {

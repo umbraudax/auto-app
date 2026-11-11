@@ -5,7 +5,7 @@ import { defaultCriteria, type Criteria } from "./config";
 import { db, type Transaction } from "./db";
 import { normalize } from "./feeds";
 import {
-  answerMemory, applications, events, jobs, qaBank, settings, skippedCompanies,
+  answerMemory, applications, events, jobBoards, jobs, qaBank, settings, skippedCompanies,
   type Notification, type Question,
 } from "./schema";
 import { withReceipt } from "./receipts";
@@ -135,11 +135,13 @@ async function applyAction(tx: Transaction, current: { paused: boolean; criteria
     case "status": {
       const apps = await tx.select({ state: applications.state, total: count() }).from(applications).groupBy(applications.state);
       const [reviews] = await tx.select({ total: count() }).from(jobs).where(eq(jobs.state, "review"));
+      const [registry] = await tx.select({ total: count() }).from(jobBoards);
       const [discovery] = await tx.select({ data: events.data }).from(events)
         .where(eq(events.kind, "discovery.run")).orderBy(desc(events.id)).limit(1);
       return [
         current.paused ? "Paused." : "Running in preview mode.",
         `${reviews.total} matches awaiting review.`,
+        `${registry.total} employer boards registered.`,
         ...apps.map(({ state, total }) => `${state.replaceAll("_", " ")} · ${total}`),
         typeof discovery?.data.summary === "string" ? `\nLatest discovery\n${discovery.data.summary}` : "",
       ].filter(Boolean).join("\n");

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { boardSchema, type Board } from "./config";
+import { boardSchema, type Board, type JobSource } from "./config";
 
 export function normalize(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
@@ -25,6 +25,14 @@ export function boardFromUrl(raw: string, company?: string): Board | undefined {
       case "jobs.ashbyhq.com":
         candidate = { ...options, source: "ashby" };
         break;
+      case "jobs.smartrecruiters.com":
+      case "careers.smartrecruiters.com":
+        candidate = { ...options, source: "smartrecruiters" };
+        break;
+      case "apply.workable.com":
+        if (slug === "j") return;
+        candidate = { ...options, source: "workable" };
+        break;
       default:
         return;
     }
@@ -40,6 +48,13 @@ export function canonicalUrl(raw: string) {
     throw new Error("Expected a public HTTPS job URL");
   }
   if (url.hostname === "boards.greenhouse.io") url.hostname = "job-boards.greenhouse.io";
+  if (url.hostname === "apply.workable.com") {
+    const shortcode = url.pathname.match(/^\/(?:[^/]+\/)?j\/([a-z0-9]+)(?:\/apply)?\/?$/i)?.[1];
+    if (shortcode) url.pathname = `/j/${shortcode.toUpperCase()}`;
+  }
+  if (["jobs.lever.co", "jobs.eu.lever.co"].includes(url.hostname)) url.pathname = url.pathname.replace(/\/apply\/?$/, "");
+  if (url.hostname === "jobs.ashbyhq.com") url.pathname = url.pathname.replace(/\/application\/?$/, "");
+  if (url.hostname === "jobs.smartrecruiters.com") url.pathname = url.pathname.replace(/^(\/[^/]+\/\d+)-[^/]+\/?$/, "$1");
   url.hash = "";
   for (const key of [...url.searchParams.keys()]) {
     if (/^(utm_.+|gh_src|source|ref|lever-source|ashby_jid)$/i.test(key)) url.searchParams.delete(key);
@@ -49,7 +64,7 @@ export function canonicalUrl(raw: string) {
   return url.toString();
 }
 
-function plain(html: string) {
+export function plain(html: string) {
   return html
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
@@ -94,17 +109,36 @@ const ashby = z.object({
   })),
 });
 
-export function feedUrl(board: Board, skip = 0) {
+const workable = z.object({
+  jobs: z.array(z.object({
+    title: z.string(), shortcode: z.string(), url: z.string(),
+    city: z.string().nullish(), state: z.string().nullish(), country: z.string().nullish(),
+    description: z.string().nullish(),
+  })),
+});
+
+const smartRecruiters = z.object({
+  content: z.array(z.object({
+    id: z.string().regex(/^\d+$/), name: z.string(),
+    location: z.object({ fullLocation: z.string().nullish(), city: z.string().nullish(), country: z.string().nullish() }).nullish(),
+  })),
+});
+
+export function feedUrl(board: Board, skip = 0, internshipsOnly = false) {
   const slug = encodeURIComponent(board.slug);
   switch (board.source) {
     case "greenhouse": return `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`;
     case "lever": return `https://api${board.region === "eu" ? ".eu" : ""}.lever.co/v0/postings/${slug}?mode=json&limit=100&skip=${skip}`;
     case "ashby": return `https://api.ashbyhq.com/posting-api/job-board/${slug}`;
+    case "workable": return `https://apply.workable.com/api/v1/widget/accounts/${slug}?details=true`;
+    case "smartrecruiters": return `https://api.smartrecruiters.com/v1/companies/${slug}/postings?limit=100&offset=${skip}${internshipsOnly ? "&q=intern" : ""}`;
   }
 }
 
+export type JobScope = { source: JobSource; slug: string };
+
 export type Posting = {
-  source: Board["source"];
+  source: JobSource;
   board: string;
   externalId: string;
   company: string;
@@ -115,8 +149,24 @@ export type Posting = {
   description: string;
 };
 
+type PostingInput = { id: string; title: string; url: string; location?: string; description?: string };
+
+export function toPosting(scope: JobScope & { company: string }, job: PostingInput): Posting {
+  return {
+    source: scope.source,
+    board: scope.slug,
+    company: scope.company,
+    externalId: job.id,
+    url: canonicalUrl(job.url),
+    identity: JSON.stringify([normalize(scope.company), normalize(job.title)]),
+    title: job.title.trim().slice(0, 400),
+    location: job.location?.trim().slice(0, 400) ?? "",
+    description: job.description?.replaceAll("\u0000", "").slice(0, 24_000) ?? "",
+  };
+}
+
 export function parseFeed(board: Board, payload: unknown): Posting[] {
-  let rows: { id: string; title: string; url: string; location?: string; description?: string }[];
+  let rows: PostingInput[];
   switch (board.source) {
     case "greenhouse":
       rows = greenhouse.parse(payload).jobs.map((job) => ({
@@ -138,19 +188,22 @@ export function parseFeed(board: Board, payload: unknown): Posting[] {
         location: job.location, description: job.descriptionPlain,
       }));
       break;
+    case "workable":
+      rows = workable.parse(payload).jobs.map((job) => ({
+        id: job.shortcode, title: job.title, url: job.url,
+        location: [job.city, job.state, job.country].filter(Boolean).join(", "),
+        description: plain(job.description ?? ""),
+      }));
+      break;
+    case "smartrecruiters":
+      rows = smartRecruiters.parse(payload).content.map((job) => ({
+        id: job.id, title: job.name, url: `https://jobs.smartrecruiters.com/${board.slug}/${job.id}`,
+        location: job.location?.fullLocation || [job.location?.city, job.location?.country].filter(Boolean).join(", "),
+      }));
+      break;
   }
 
-  return rows.map((job) => ({
-    source: board.source,
-    board: board.slug,
-    company: board.company,
-    externalId: job.id,
-    url: canonicalUrl(job.url),
-    identity: JSON.stringify([normalize(board.company), normalize(job.title)]),
-    title: job.title.trim().slice(0, 400),
-    location: job.location?.trim().slice(0, 400) ?? "",
-    description: job.description?.replaceAll("\u0000", "").slice(0, 24_000) ?? "",
-  }));
+  return rows.map((job) => toPosting(board, job));
 }
 
 export function greenhouseFormUrl(board: string, externalId: string) {

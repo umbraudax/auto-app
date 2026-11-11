@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const source = z.enum(["greenhouse", "lever", "ashby"]);
+const boardSources = ["greenhouse", "lever", "ashby", "smartrecruiters", "workable"] as const;
+export const source = z.enum(boardSources);
+export const jobSources = [...boardSources, "public_feed"] as const;
+export type JobSource = typeof jobSources[number];
 export const boardSchema = z.object({
   source,
   slug: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/),

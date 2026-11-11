@@ -42,22 +42,18 @@ export async function POST(request: Request) {
       try {
         if (discover) {
           if (discover.invalidBoard) {
-            await editReply(interaction, "Enter a public Greenhouse, Lever, or Ashby job board URL.");
+            await editReply(interaction, "Enter a public Greenhouse, Lever, Ashby, SmartRecruiters, or Workable job board URL.");
             return;
           }
-          let selected;
           try {
-            selected = discover.board ? [discover.board] : boards();
+            if (!discover.board) boards();
           } catch {
             await editReply(interaction, "JOB_BOARDS_JSON is invalid. Check the configured board sources and slugs, or run /discover with one board URL.");
             return;
           }
-          if (!selected.length) {
-            await editReply(interaction, "No job boards are configured. Run /discover with a public board URL, or set JOB_BOARDS_JSON for recurring searches.");
-            return;
-          }
-          const run = await dispatch("discover", selected, true);
-          await editReply(interaction, `Discovery queued for ${selected.length} job ${selected.length === 1 ? "board" : "boards"}. Follow progress with /status. A summary will appear in the configured channel.\nRun \`${run.runId}\``);
+          const run = await dispatch("discover", discover.board ? [discover.board] : undefined, true);
+          const target = discover.board ? `Checking the ${discover.board.company} board.` : "Searching public internship feeds and employer boards.";
+          await editReply(interaction, `${target} Follow progress with /status. A summary will appear in the configured channel.\nRun \`${run.runId}\``);
           return;
         }
         if (!action) return;

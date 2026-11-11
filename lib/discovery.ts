@@ -5,7 +5,8 @@ import { DailyLimit } from "./budget";
 import { ClaudeHttpError, claudeJson } from "./claude";
 import { type Board } from "./config";
 import { db } from "./db";
-import { feedUrl, normalize, parseFeed, type Posting } from "./feeds";
+import { feedUrl, normalize, parseFeed, plain, type JobScope, type Posting } from "./feeds";
+import { isTechnicalInternship } from "./internship-titles";
 import { events, jobs, skippedCompanies } from "./schema";
 import { finishScore, lockSettings } from "./state";
 
@@ -18,15 +19,16 @@ function matchesTitle(title: string, terms: string[]) {
 
 export class BoardFeedError extends Error {}
 
-export async function ingest(board: Board) {
+type IngestResult = { status: "checked" | "paused" | "skipped"; listings: number; added: number; filtered: number };
+
+export async function ingest(board: Board, internshipsOnly = false): Promise<IngestResult> {
   const current = await db().transaction(lockSettings);
-  const result = { status: "checked" as "checked" | "paused" | "skipped", listings: 0, added: 0, filtered: 0 };
-  if (current.paused) return { ...result, status: "paused" as const };
+  if (current.paused) return { status: "paused", listings: 0, added: 0, filtered: 0 };
   const [skipped] = await db().select().from(skippedCompanies).where(eq(skippedCompanies.key, normalize(board.company)));
-  if (skipped) return { ...result, status: "skipped" as const };
+  if (skipped) return { status: "skipped", listings: 0, added: 0, filtered: 0 };
   const listings: Posting[] = [];
   for (let skip = 0; skip < 2000; skip += 100) {
-    const response = await fetch(feedUrl(board, skip), { redirect: "error", signal: AbortSignal.timeout(12_000), cache: "no-store" })
+    const response = await fetch(feedUrl(board, skip, internshipsOnly), { redirect: "error", signal: AbortSignal.timeout(12_000), cache: "no-store" })
       .catch(() => { throw new BoardFeedError("The job board could not be reached."); });
     if (!response.ok) throw new BoardFeedError(`The job board returned HTTP ${response.status}.`);
     let page: unknown;
@@ -36,18 +38,61 @@ export async function ingest(board: Board) {
     } catch {
       throw new BoardFeedError("The job board returned an unexpected feed.");
     }
-    if (board.source !== "lever" || !Array.isArray(page) || page.length < 100) break;
+    if (board.source === "lever" && Array.isArray(page) && page.length === 100) continue;
+    if (board.source === "smartrecruiters" && typeof page === "object" && page && "totalFound" in page &&
+        typeof page.totalFound === "number" && page.totalFound > skip + 100) continue;
+    break;
   }
-  result.listings = listings.length;
+  const relevant = internshipsOnly ? listings.filter(({ title }) => isTechnicalInternship(title)) : listings;
+  if (board.source === "smartrecruiters") await enrichSmartRecruiters(board, relevant);
+  const result = await storePostings(relevant, true);
+  return { ...result, listings: listings.length, filtered: result.filtered + listings.length - relevant.length };
+}
+
+async function enrichSmartRecruiters(board: Board, postings: Posting[]) {
+  const jobsToEnrich = postings.filter(({ title }) => isTechnicalInternship(title)).slice(0, 12);
+  for (let i = 0; i < jobsToEnrich.length; i += 4) {
+    await Promise.all(jobsToEnrich.slice(i, i + 4).map(async (posting) => {
+      try {
+        const url = `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(board.slug)}/postings/${posting.externalId}`;
+        const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(8_000) });
+        if (!response.ok) return;
+        const data = await response.json();
+        const sections = data.jobAd?.sections;
+        posting.description = ["jobDescription", "qualifications", "additionalInformation"]
+          .map((key) => sections?.[key]?.text)
+          .filter((part): part is string => typeof part === "string")
+          .map(plain).join("\n").replaceAll("\u0000", "").slice(0, 24_000);
+      } catch {
+        // The listing still links to the posting if its detail endpoint is unavailable.
+      }
+    }));
+  }
+}
+
+export async function storePostings(listings: Posting[], enrich = false): Promise<IngestResult> {
+  const result: IngestResult = { status: "checked", listings: listings.length, added: 0, filtered: 0 };
   for (let i = 0; i < listings.length; i += 100) {
     const saved = await db().transaction(async (tx) => {
       const { criteria, paused } = await lockSettings(tx);
       if (paused) return;
-      const rows = listings.slice(i, i + 100).map((posting) => matchesTitle(posting.title, criteria.titleTerms)
+      const skipped = new Set((await tx.select().from(skippedCompanies)).map(({ key }) => key));
+      const rows = listings.slice(i, i + 100).filter(({ company }) => !skipped.has(normalize(company)))
+        .map((posting) => matchesTitle(posting.title, criteria.titleTerms)
         ? posting : { ...posting, state: "filtered" as const, score: 0, reason: "Title does not match the configured terms." });
+      if (!rows.length) return [];
       const added = await tx.insert(jobs).values(rows).onConflictDoNothing()
-        .returning({ id: jobs.id, state: jobs.state });
+        .returning({ id: jobs.id, state: jobs.state, url: jobs.url });
       if (added.length) await tx.insert(events).values(added.map(({ id }) => ({ kind: "job.discovered", jobId: id })));
+      if (enrich) {
+        const newUrls = new Set(added.map(({ url }) => url));
+        for (const posting of rows) {
+          if (posting.description && !newUrls.has(posting.url) && isTechnicalInternship(posting.title)) {
+            await tx.update(jobs).set({ description: posting.description })
+              .where(and(eq(jobs.url, posting.url), eq(jobs.description, "")));
+          }
+        }
+      }
       return added;
     });
     if (!saved) return { ...result, status: "paused" as const };
@@ -64,15 +109,15 @@ export type ScoreResult =
   | { status: "filtered" | "empty" | "paused" }
   | { status: "blocked" | "error"; problem: string };
 
-export async function scoreOne(targets: Board[]): Promise<ScoreResult> {
+export async function scoreOne(targets?: JobScope[]): Promise<ScoreResult> {
   const claimed = await db().transaction(async (tx) => {
     const { paused, criteria } = await lockSettings(tx);
     if (paused) return "paused" as const;
-    if (!targets.length) return;
+    if (targets?.length === 0) return;
     const [job] = await tx.select().from(jobs).where(and(eq(jobs.state, "discovered"),
-      or(...targets.map(({ source, slug }) => and(eq(jobs.source, source), eq(jobs.board, slug)))),
+      targets ? or(...targets.map(({ source, slug }) => and(eq(jobs.source, source), eq(jobs.board, slug)))) : undefined,
       or(isNull(jobs.scoreLeaseUntil), lt(jobs.scoreLeaseUntil, sql`now()`))))
-      .orderBy(asc(jobs.foundAt), asc(jobs.id)).limit(1).for("update");
+      .orderBy(asc(sql`case when ${jobs.description} = '' then 1 else 0 end`), asc(jobs.foundAt), asc(jobs.id)).limit(1).for("update");
     if (!job) return;
     const scoreLease = randomUUID();
     await tx.update(jobs).set({ scoreLease, scoreLeaseUntil: sql`now() + interval '3 minutes'` })

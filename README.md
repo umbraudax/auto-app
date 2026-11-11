@@ -9,12 +9,12 @@ Autoapp runs in **dry-run mode**. Apply queues a Greenhouse preview or creates a
 1. Use Node 22.13 or newer and run `npm ci`. Copy [.env.example](.env.example) to `.env.local`. Use the same environment variables in the Vercel project. Keep the profile and tokens in environment variables.
 2. Create a Neon database, set `DATABASE_URL` to its pooled connection string, and run `npm run db:migrate`. The migration can be rerun.
 3. Create a **private** Blob store and set `BLOB_READ_WRITE_TOKEN`. Set the Browserbase project ID and key and the Anthropic API key. Put your approved contact details in `APPLICANT_PROFILE_JSON`.
-4. Set `JOB_BOARDS_JSON` to the employers you want to follow. Each entry has a source of `greenhouse`, `lever`, or `ashby`, the employer's board slug, and the company name you want Discord to display. Set `region` to `eu` for Lever EU boards. No employer is configured by default. Put the role, location, season, and eligibility requirements in `CRITERIA_JSON`. Avoid including personal identifiers in the criteria sent to Claude.
+4. Discovery finds employer boards automatically. Use `JOB_BOARDS_JSON` for employers you also want checked on every run. Each entry has a source of `greenhouse`, `lever`, `ashby`, `smartrecruiters`, or `workable`, the employer's board slug, and the company name to display. Set `region` to `eu` for Lever EU boards. Put your location, season, and eligibility requirements in `CRITERIA_JSON`. Avoid including personal identifiers in the criteria sent to Claude.
 5. Create a Discord application and bot. Install it in your server with the `bot` and `applications.commands` scopes. Give it View Channel, Send Messages, Embed Links, Attach Files, Create Public Threads, Send Messages in Threads, and Read Message History in one **private text channel** that only you and the bot can see. Application previews can contain applicant information. Put that channel's ID, the server ID, your Discord user ID, the application ID, public key, and bot token in the environment.
 6. Deploy the Next.js project to Vercel with a random `CRON_SECRET`. Set Discord's Interactions Endpoint URL to your production URL plus `/api/discord`. Register the guild commands with `npm run discord:register`. Only the configured Discord user in the configured server can invoke them.
 7. Use `/resume upload` in Discord to add a DOCX and select it as the default. Run `/discover` to check the feeds. Use Apply on a Greenhouse match, answer any questions in its thread, and inspect the preview. Start with a test profile. Vercel Blob stores the screenshot and the bot attaches it to the configured private Discord channel's thread.
 
-For an existing deployment, apply the database migration with `npm run db:migrate`, deploy the updated app, then run `npm run discord:register` to add the resume commands.
+For an existing deployment, apply the database migrations with `npm run db:migrate`, deploy the updated app, then run `npm run discord:register` to sync the slash commands.
 
 `npm run dev` runs the local Next.js app and local Workflow world. `npm run check`, `npm test`, and `npm run build` check types, run tests, and build for production. The browser and Postgres integration tests opt in with `TEST_CHROMIUM_PATH` and `TEST_DATABASE_URL`. Point the latter at a dedicated database whose name ends in `_test`.
 
@@ -23,8 +23,8 @@ For an existing deployment, apply the database migration with `npm run db:migrat
 | Command | Effect |
 | --- | --- |
 | `/status` | Show pending matches, application counts, and the latest discovery progress. |
-| `/discover` | Check your configured job boards now and post a summary in the private channel. |
-| `/discover board:<URL> company:<name>` | Check one public Greenhouse, Lever, or Ashby board. The company name is optional. This search does not change recurring discovery. |
+| `/discover` | Find software engineering, IT, and cybersecurity internships, register newly discovered employer boards, and post a summary. |
+| `/discover board:<URL> company:<name>` | Check one public Greenhouse, Lever, Ashby, SmartRecruiters, or Workable board. The company name is optional. This search does not change recurring discovery. |
 | `/pause` or `/pause enabled:false` | Pause or resume new discovery and previews. An in-progress preview can finish. |
 | `/criteria` | Show or update the search criteria, title terms, score cutoff, and automatic preview threshold. A threshold of 101 keeps every match behind the Apply button. |
 | `/skipcompany` | Skip the company's pending and future matches. |
@@ -37,6 +37,12 @@ For an existing deployment, apply the database migration with `npm run db:migrat
 An existing `APPLICANT_PROFILE_JSON.resume` is imported when the resume library is first used. After that, Discord manages the default and can delete the imported file.
 
 PDFs already in the library remain available for previews.
+
+## Where discovery searches
+
+Automatic runs read [SimplifyJobs / Pitt CSC](https://github.com/SimplifyJobs/Summer2027-Internships), [ApplyGuy](https://github.com/ApplyGuy/2027-Internships), [Jobbie](https://github.com/jobbie-bot/Summer-2027-Tech-Internships), [Jobicy](https://github.com/Jobicy/remote-jobs-api), and [Arbeitnow](https://www.arbeitnow.com/api/job-board-api). These feeds and the public employer board endpoints require no additional API keys. The feeds cover different locations and recruiting cycles. Claude scores candidates against your configured criteria and spending cap.
+
+The registry keeps supported employer boards found in relevant postings. Automatic runs check configured employers plus up to `DISCOVERY_BOARD_CHECKS` due registry boards, 24 by default. Public feeds refresh at most once an hour. Listings on other sites can still appear for manual application. Greenhouse postings with a supported form can use the existing preview flow.
 
 ## How previews work
 

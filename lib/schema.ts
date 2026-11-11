@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import type { Criteria } from "./config";
+import { jobSources, type Board, type Criteria } from "./config";
 
-export const sources = pgEnum("job_source", ["greenhouse", "lever", "ashby"]);
+export const sources = pgEnum("job_source", jobSources);
 export const jobStates = pgEnum("job_state", ["discovered", "filtered", "review", "approved", "skipped"]);
 export const applicationStates = pgEnum("application_state", [
   "queued", "preparing", "needs_input", "preview_ready", "needs_manual",
@@ -102,6 +102,19 @@ export const settings = pgTable("settings", {
 export const skippedCompanies = pgTable("skipped_companies", {
   key: text().primaryKey(),
 });
+
+export const jobBoards = pgTable("job_boards", {
+  key: text().primaryKey(),
+  source: sources().$type<Board["source"]>().notNull(),
+  slug: text().notNull(),
+  company: text().notNull(),
+  region: text().$type<Board["region"]>().notNull().default("global"),
+  foundVia: text().notNull(),
+  addedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  lastCheckedAt: timestamp({ withTimezone: true }),
+  nextCheckAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  lastError: text(),
+}, (table) => [index().on(table.nextCheckAt)]);
 
 export const dailyUsage = pgTable("daily_usage", {
   day: date().primaryKey(),

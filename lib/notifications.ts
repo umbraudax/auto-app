@@ -3,6 +3,7 @@ import { and, asc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { required } from "./config";
 import { db, type Transaction } from "./db";
 import { discord, DiscordError, noMentions, snowflake } from "./discord";
+import { publicSources, type PublicSource } from "./public-source-catalog";
 import { applications, events, jobs } from "./schema";
 
 const row = (components: object[]) => ({ type: 1, components });
@@ -55,11 +56,14 @@ export async function deliverOne() {
         if (job && ["review", "approved"].includes(job.state)) {
           const actions = job.state === "review"
             ? [button("Apply", `approve:${job.id}`, 1), button("Skip", `skip:${job.id}`)] : [];
+          const attribution = job.source === "public_feed" && Object.hasOwn(publicSources, job.board)
+            ? publicSources[job.board as PublicSource].label : undefined;
           const message = await send(channel, event.id, {
             embeds: [{
               title: clip(`${job.company} · ${job.title}`, 250),
               description: clip(`${job.location || "Location unspecified"}\n${job.reason ?? ""}`, 600),
               fields: [{ name: "Fit score", value: `${job.score}/100` }],
+              footer: attribution ? { text: `Source · ${attribution}` } : undefined,
             }],
             components: [row([...actions, link(job.url)])],
           });
