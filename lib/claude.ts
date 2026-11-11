@@ -17,12 +17,26 @@ const envelope = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional() })),
 });
 
+export class ClaudeHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Claude returned HTTP ${status}`);
+  }
+}
+
 export async function claudeJson<T>(
   tier: keyof typeof models, system: string, data: unknown, schema: z.ZodType<T>, maxTokens: number,
 ) {
   const model = models[tier];
   const apiKey = required("ANTHROPIC_API_KEY");
-  const { $schema: _dialect, ...jsonSchema } = z.toJSONSchema(schema);
+  const { $schema: _dialect, ...jsonSchema } = z.toJSONSchema(schema, {
+    override({ jsonSchema }) {
+      // Claude supports numeric types without these bounds. The original Zod schema still validates the reply.
+      if (jsonSchema.type === "integer" || jsonSchema.type === "number") {
+        delete jsonSchema.minimum;
+        delete jsonSchema.maximum;
+      }
+    },
+  });
   const body = JSON.stringify({
     model: model.id,
     max_tokens: maxTokens,
@@ -43,7 +57,11 @@ export async function claudeJson<T>(
     redirect: "error",
     signal: AbortSignal.timeout(25_000),
   });
-  if (!response.ok) throw new Error(`Claude API returned HTTP ${response.status}`);
+  if (!response.ok) {
+    // Explicit request rejections never reached inference.
+    if ([400, 401, 402, 403, 404, 413, 429].includes(response.status)) await settleClaude(day, reserved, 0);
+    throw new ClaudeHttpError(response.status);
+  }
 
   const reply = envelope.parse(await response.json());
   const cost = reply.usage.input_tokens * model.input + reply.usage.output_tokens * model.output;

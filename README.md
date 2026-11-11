@@ -22,8 +22,9 @@ For an existing deployment, apply the database migration with `npm run db:migrat
 
 | Command | Effect |
 | --- | --- |
-| `/status` | Show pending matches, application counts, and whether the bot is paused. |
-| `/discover` | Start a job feed check now. |
+| `/status` | Show pending matches, application counts, and the latest discovery progress. |
+| `/discover` | Check your configured job boards now and post a summary in the private channel. |
+| `/discover board:<URL> company:<name>` | Check one public Greenhouse, Lever, or Ashby board. The company name is optional. This search does not change recurring discovery. |
 | `/pause` or `/pause enabled:false` | Pause or resume new discovery and previews. An in-progress preview can finish. |
 | `/criteria` | Show or update the search criteria, title terms, score cutoff, and automatic preview threshold. A threshold of 101 keeps every match behind the Apply button. |
 | `/skipcompany` | Skip the company's pending and future matches. |

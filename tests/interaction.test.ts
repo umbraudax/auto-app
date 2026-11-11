@@ -58,6 +58,20 @@ test("resume upload reads a signed Discord attachment option", () => {
   assert.throws(() => interactionAction(interactionSchema.parse({ ...base, data })));
 });
 
+test("discovery accepts one public ATS board and rejects unknown hosts", () => {
+  const input = {
+    id: "100000000000000000", application_id: "100000000000000001", token: "fake", type: 2,
+  };
+  const discover = (url: string) => interactionAction(interactionSchema.parse({
+    ...input, data: { name: "discover", options: [{ name: "board", value: url }, { name: "company", value: "Example" }] },
+  })).discover;
+  assert.deepEqual(discover("https://jobs.eu.lever.co/example"), {
+    board: { source: "lever", slug: "example", region: "eu", company: "Example" }, invalidBoard: false,
+  });
+  assert.equal(discover("https://jobs.lever.co.example.com/example")?.invalidBoard, true);
+  assert.deepEqual(interactionAction(interactionSchema.parse({ ...input, data: { name: "discover" } })).discover, {});
+});
+
 test("all three board adapters preserve canonical posting identity", () => {
   const [greenhouse] = parseFeed({ source: "greenhouse", company: "ACME", slug: "acme" }, { jobs: [{
     id: 123, title: "Engineer Intern", absolute_url: "https://boards.greenhouse.io/acme/jobs/123?gh_src=email",

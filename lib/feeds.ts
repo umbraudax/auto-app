@@ -1,8 +1,37 @@
 import { z } from "zod";
-import type { Board } from "./config";
+import { boardSchema, type Board } from "./config";
 
 export function normalize(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function boardFromUrl(raw: string, company?: string): Board | undefined {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.username || url.password || url.port) return;
+    const [, slug] = url.pathname.split("/");
+    const name = company ?? slug;
+    const options = { slug, company: name };
+    let candidate;
+    switch (url.hostname) {
+      case "job-boards.greenhouse.io":
+      case "boards.greenhouse.io":
+        candidate = { ...options, source: "greenhouse" };
+        break;
+      case "jobs.lever.co":
+      case "jobs.eu.lever.co":
+        candidate = { ...options, source: "lever", region: url.hostname === "jobs.eu.lever.co" ? "eu" : "global" };
+        break;
+      case "jobs.ashbyhq.com":
+        candidate = { ...options, source: "ashby" };
+        break;
+      default:
+        return;
+    }
+    return boardSchema.safeParse(candidate).data;
+  } catch {
+    return undefined;
+  }
 }
 
 export function canonicalUrl(raw: string) {

@@ -1,6 +1,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { z } from "zod";
 import { required } from "./config";
+import { boardFromUrl } from "./feeds";
 import type { ResumeAction } from "./resumes";
 import type { Action } from "./state";
 
@@ -100,7 +101,6 @@ function parseSlash(interaction: Interaction): Action | ReturnType<typeof parseR
         type: "record", thread: snowflake.parse(interaction.channel_id),
         state: z.enum(["submitted", "confirmed", "rejected", "interview"]).parse(options.state),
       };
-    case "discover": return;
     case "resume": return parseResume(interaction);
   }
 }
@@ -118,7 +118,15 @@ const modalComponent = z.object({
 });
 
 export function interactionAction(interaction: Interaction) {
-  if (interaction.type === 2) return { action: parseSlash(interaction), discover: interaction.data?.name === "discover" };
+  if (interaction.type === 2) {
+    if (interaction.data?.name !== "discover") return { action: parseSlash(interaction) };
+    const options = Object.fromEntries(interaction.data.options?.flatMap((option) =>
+      "value" in option ? [[option.name, option.value]] : []) ?? []);
+    if (options.board === undefined) return { discover: {} };
+    const board = typeof options.board === "string" ? boardFromUrl(options.board,
+      typeof options.company === "string" ? options.company : undefined) : undefined;
+    return { discover: { board, invalidBoard: !board } };
+  }
   const custom = interaction.data?.custom_id?.split(":") ?? [];
   if (interaction.type === 3 && (custom[0] === "approve" || custom[0] === "skip")) {
     const [type, jobId] = z.tuple([z.enum(["approve", "skip"]), uuid]).parse(custom);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { reservePreview } from "./budget";
 import { defaultCriteria, type Criteria } from "./config";
 import { db, type Transaction } from "./db";
@@ -43,7 +43,7 @@ async function queue(tx: Transaction, job: typeof jobs.$inferSelect) {
 }
 
 export async function finishScore(job: typeof jobs.$inferSelect, fit: { score: number; reason: string }) {
-  await db().transaction(async (tx) => {
+  return db().transaction(async (tx) => {
     const { criteria, paused } = await lockSettings(tx);
     if (paused) return;
     const [skip] = await tx.select().from(skippedCompanies).where(eq(skippedCompanies.key, normalize(job.company)));
@@ -58,6 +58,7 @@ export async function finishScore(job: typeof jobs.$inferSelect, fit: { score: n
       notification: state === "review" ? { type: "match", jobId: job.id } : undefined,
     });
     if (autoPreview) await queue(tx, updated);
+    return state;
   });
 }
 
@@ -134,11 +135,14 @@ async function applyAction(tx: Transaction, current: { paused: boolean; criteria
     case "status": {
       const apps = await tx.select({ state: applications.state, total: count() }).from(applications).groupBy(applications.state);
       const [reviews] = await tx.select({ total: count() }).from(jobs).where(eq(jobs.state, "review"));
+      const [discovery] = await tx.select({ data: events.data }).from(events)
+        .where(eq(events.kind, "discovery.run")).orderBy(desc(events.id)).limit(1);
       return [
         current.paused ? "Paused." : "Running in preview mode.",
         `${reviews.total} matches awaiting review.`,
         ...apps.map(({ state, total }) => `${state.replaceAll("_", " ")} · ${total}`),
-      ].join("\n");
+        typeof discovery?.data.summary === "string" ? `\nLatest discovery\n${discovery.data.summary}` : "",
+      ].filter(Boolean).join("\n");
     }
     case "pause":
       await tx.update(settings).set({ paused: action.paused }).where(eq(settings.id, 1));

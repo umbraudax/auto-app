@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { required } from "../../../lib/config";
+import { boards, required } from "../../../lib/config";
 import { deferred, editReply, immediate, interactionAction, interactionSchema, validSignature } from "../../../lib/discord";
 import { dispatch } from "../../../lib/dispatch";
 import { resumeCommand } from "../../../lib/resumes";
@@ -41,8 +41,23 @@ export async function POST(request: Request) {
     after(async () => {
       try {
         if (discover) {
-          await dispatch("discover");
-          await editReply(interaction, "Discovery started.");
+          if (discover.invalidBoard) {
+            await editReply(interaction, "Enter a public Greenhouse, Lever, or Ashby job board URL.");
+            return;
+          }
+          let selected;
+          try {
+            selected = discover.board ? [discover.board] : boards();
+          } catch {
+            await editReply(interaction, "JOB_BOARDS_JSON is invalid. Check the configured board sources and slugs, or run /discover with one board URL.");
+            return;
+          }
+          if (!selected.length) {
+            await editReply(interaction, "No job boards are configured. Run /discover with a public board URL, or set JOB_BOARDS_JSON for recurring searches.");
+            return;
+          }
+          const run = await dispatch("discover", selected, true);
+          await editReply(interaction, `Discovery queued for ${selected.length} job ${selected.length === 1 ? "board" : "boards"}. Follow progress with /status. A summary will appear in the configured channel.\nRun \`${run.runId}\``);
           return;
         }
         if (!action) return;

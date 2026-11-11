@@ -111,6 +111,7 @@ export const dailyUsage = pgTable("daily_usage", {
 
 export type Notification =
   | { type: "match"; jobId: string }
+  | { type: "discovery"; summary: string }
   | { type: "question"; applicationId: string; promptId: string }
   | { type: "preview"; applicationId: string; path: string; memoryAnswers?: number }
   | { type: "manual"; applicationId: string; reason: string }

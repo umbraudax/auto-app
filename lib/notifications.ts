@@ -65,6 +65,8 @@ export async function deliverOne() {
           });
           await tx.update(jobs).set({ reviewMessage: snowflake.parse(message.id) }).where(eq(jobs.id, job.id));
         }
+      } else if (notification.type === "discovery") {
+        await send(channel, event.id, { content: clip(notification.summary, 1950) });
       } else if (notification.type === "digest") {
         const lines = Object.entries(notification.counts).map(([state, total]) => `${state.replaceAll("_", " ")} · ${total}`);
         await send(channel, event.id, { content: `**Daily application digest**\n${lines.join("\n")}` });

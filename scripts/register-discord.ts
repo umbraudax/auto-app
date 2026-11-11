@@ -5,7 +5,10 @@ import { syncGuildCommands } from "./sync-discord-commands";
 const statuses = ["submitted", "confirmed", "rejected", "interview"];
 const definitions = [
   { name: "status", description: "Show the application queue" },
-  { name: "discover", description: "Check the configured job boards now" },
+  { name: "discover", description: "Check your configured job boards or search one board now", options: [
+    { type: 3, name: "board", description: "Public Greenhouse, Lever, or Ashby board URL", max_length: 350 },
+    { type: 3, name: "company", description: "Company name for a one-time board search", max_length: 150 },
+  ] },
   { name: "pause", description: "Pause or resume discovery and previews", options: [
     { type: 5, name: "enabled", description: "Use false to resume" },
   ] },

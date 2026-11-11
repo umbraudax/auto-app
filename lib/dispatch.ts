@@ -1,10 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { start } from "workflow/api";
 import { pipeline } from "../workflows/pipeline";
-import { boards, required } from "./config";
+import { boards, required, type Board } from "./config";
 
-export function dispatch(kind: "discover" | "process" | "digest") {
-  return start(pipeline, [kind, kind === "discover" ? boards() : [], new Date().toISOString().slice(0, 10)]);
+export function dispatch(kind: "discover" | "process" | "digest", selected?: Board[], notify = false) {
+  const targets = kind === "discover" ? selected ?? boards() : [];
+  return start(pipeline, [kind, targets, new Date().toISOString().slice(0, 10), notify]);
 }
 
 export async function cron(request: Request, kind: "discover" | "digest") {
