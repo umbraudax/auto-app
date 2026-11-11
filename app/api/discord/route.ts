@@ -19,10 +19,10 @@ export async function POST(request: Request) {
   } catch {
     return new Response("Invalid interaction", { status: 400 });
   }
+  if (interaction.type === 1) return Response.json({ type: 1 });
   if (interaction.application_id !== required("DISCORD_APPLICATION_ID")) {
     return new Response("Invalid application", { status: 401 });
   }
-  if (interaction.type === 1) return Response.json({ type: 1 });
   if (interaction.guild_id !== required("DISCORD_GUILD_ID") ||
       (interaction.member?.user.id ?? interaction.user?.id) !== required("DISCORD_OWNER_ID")) {
     return Response.json(immediate("This bot is available to its configured owner."));
