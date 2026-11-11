@@ -1,0 +1,42 @@
+{
+  "name": "autoapp",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "discord:register": "node --env-file-if-exists=.env.local --import tsx scripts/register-discord.ts"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.9.0",
+    "drizzle-orm": "0.45.4",
+    "next": "16.4.6",
+    "pg": "8.23.1",
+    "playwright-core": "1.65.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "workflow": "5.5.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "drizzle-kit": "0.31.11",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3"
+  },
+  "overrides": {
+    "@vercel/cli-auth": { "zod": "$zod" },
+    "@vercel/cli-config": { "zod": "$zod" },
+    "@oclif/core": { "minimatch": "11.0.1" },
+    "@vercel/queue": { "minimatch": "11.0.1" }
+  }
+}
