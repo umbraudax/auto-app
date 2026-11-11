@@ -9,7 +9,7 @@ function connect() {
     max: 4,
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 10_000,
-    options: "-c statement_timeout=15000",
+    query_timeout: 15_000,
   }), { schema });
 }
 

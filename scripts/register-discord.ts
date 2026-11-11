@@ -1,5 +1,6 @@
 import { required } from "../lib/config";
-import { discord, snowflake } from "../lib/discord";
+import { DiscordError, snowflake } from "../lib/discord";
+import { syncGuildCommands } from "./sync-discord-commands";
 
 const statuses = ["submitted", "confirmed", "rejected", "interview"];
 const definitions = [
@@ -39,13 +40,17 @@ const definitions = [
 async function main() {
   const app = snowflake.parse(required("DISCORD_APPLICATION_ID"));
   const guild = snowflake.parse(required("DISCORD_GUILD_ID"));
-  for (const definition of definitions) {
-    await discord(`/applications/${app}/guilds/${guild}/commands`, "POST", { type: 1, ...definition });
-  }
-  console.log(`Registered ${definitions.length} guild commands.`);
+  const { created, updated, unchanged } = await syncGuildCommands(
+    `/applications/${app}/guilds/${guild}/commands`, definitions,
+  );
+  console.log(`Synced ${definitions.length} guild commands (${created} added, ${updated} updated, ${unchanged} already current).`);
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : "Registration failed.");
+  if (error instanceof DiscordError && error.status === 429 && error.retryAfterMs !== undefined) {
+    console.error(`Discord is still rate limiting this command. Wait ${Math.ceil(error.retryAfterMs / 1000)} seconds before running registration again.`);
+  } else {
+    console.error(error instanceof Error ? error.message : "Registration failed.");
+  }
   process.exitCode = 1;
 });

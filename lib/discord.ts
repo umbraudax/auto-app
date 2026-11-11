@@ -153,7 +153,7 @@ export function interactionAction(interaction: Interaction) {
 }
 
 export class DiscordError extends Error {
-  constructor(readonly status: number, readonly code?: number) {
+  constructor(readonly status: number, readonly code?: number, readonly retryAfterMs?: number) {
     super(`Discord API returned HTTP ${status}`);
   }
 }
@@ -167,8 +167,15 @@ export async function discord(path: string, method: string, payload?: object, au
     redirect: "error", signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) {
-    const { code } = await response.json().catch(() => ({}));
-    throw new DiscordError(response.status, typeof code === "number" ? code : undefined);
+    const error = await response.json().catch(() => null);
+    let retryAfterMs: number | undefined;
+    if (response.status === 429) {
+      const header = response.headers.get("retry-after");
+      const delays = [header === null ? undefined : Number(header), error?.retry_after]
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+      if (delays.length) retryAfterMs = Math.ceil(Math.max(...delays) * 1000);
+    }
+    throw new DiscordError(response.status, typeof error?.code === "number" ? error.code : undefined, retryAfterMs);
   }
   return response.status === 204 ? undefined : response.json();
 }

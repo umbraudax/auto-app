@@ -60,7 +60,13 @@ export async function POST(request: Request) {
           }
         }
         await editReply(interaction, reply);
-      } catch {
+      } catch (error) {
+        const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+        const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+        console.error("Discord action failed", {
+          action: discover ? "discover" : action?.type,
+          code: typeof code === "number" || (typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code)) ? code : undefined,
+        });
         await editReply(interaction, "The command could not be completed. Check the bot setup and try again.").catch(() => undefined);
       }
     });
