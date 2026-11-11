@@ -12,6 +12,7 @@ const pdf = Buffer.from("%PDF-1.4\n% test fixture\n");
 
 test("resume attachments are limited to Discord's HTTPS attachment endpoints", () => {
   assert.ok(isDiscordAttachment(new URL("https://cdn.discordapp.com/attachments/12/34/resume.docx?ex=test")));
+  assert.ok(isDiscordAttachment(new URL("https://cdn.discordapp.com/ephemeral-attachments/12/34/resume.docx?ex=test")));
   assert.ok(!isDiscordAttachment(new URL("https://cdn.discordapp.com.example.com/attachments/12/34/resume.docx")));
   assert.ok(!isDiscordAttachment(new URL("https://cdn.discordapp.com/avatars/12/34/resume.docx")));
 });
@@ -48,14 +49,19 @@ test("resume upload, retries, defaults and deletion preserve the private library
       for (const path of paths) files.delete(path);
     },
   };
-  const fetch = t.mock.method(globalThis, "fetch", async () => new Response(new Uint8Array(docx)));
+  const attachmentUrl = "https://cdn.discordapp.com/ephemeral-attachments/12/34/resume.docx?ex=test&is=test&hm=test";
+  let downloadStatus = 200;
+  const fetch = t.mock.method(globalThis, "fetch", async (url: URL) => {
+    assert.equal(url.href, attachmentUrl);
+    return new Response(new Uint8Array(docx), { status: downloadStatus });
+  });
   let id = BigInt(Date.now()) * 100_000n;
   const nextId = () => (++id).toString();
   assert.deepEqual(await defaultResume(legacy), legacy);
 
   const firstId = nextId();
   const file = {
-    url: "https://cdn.discordapp.com/attachments/12/34/resume.docx?ex=test",
+    url: attachmentUrl,
     filename: "Research Resume.DOCX", size: docx.length,
   };
   const upload = { operation: "upload" as const, file, makeDefault: false };
@@ -95,10 +101,13 @@ test("resume upload, retries, defaults and deletion preserve the private library
   const invalid = await resumeCommand(nextId(), {
     ...upload, file: { ...file, url: "https://example.com/resume.docx" },
   }, storage);
-  assert.match(invalid, /valid \.docx/);
+  assert.match(invalid, /couldn't download/);
   const newPdf = await resumeCommand(nextId(), {
     ...upload, file: { ...file, filename: "New Resume.pdf", size: pdf.length },
   }, storage);
   assert.match(newPdf, /valid \.docx/);
   assert.equal(fetch.mock.callCount(), callsBefore);
+  downloadStatus = 404;
+  assert.match(await resumeCommand(nextId(), upload, storage), /couldn't download/);
+  assert.equal(uploads, 2);
 });

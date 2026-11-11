@@ -30,7 +30,7 @@ export type ResumeAction =
 export function isDiscordAttachment(url: URL) {
   return url.protocol === "https:" && !url.port && !url.username && !url.password &&
     ["cdn.discordapp.com", "media.discordapp.net"].includes(url.hostname) &&
-    /^\/attachments\/\d+\/\d+\/[^/]+$/.test(url.pathname);
+    /^\/(?:ephemeral-)?attachments\/\d+\/\d+\/[^/]+$/.test(url.pathname);
 }
 
 function configuredResume() {
@@ -62,11 +62,21 @@ export async function defaultResume(legacy?: Resume): Promise<Resume | undefined
   });
 }
 
-async function downloadDocx(file: Attachment) {
+const invalidDocx = "Attach a valid .docx resume up to 8 MB.";
+const downloadFailed = "I couldn't download the resume from Discord. Attach it again and retry.";
+
+async function downloadDocx(file: Attachment): Promise<{ document: Buffer } | { error: string }> {
+  if (!/\.docx$/i.test(file.filename) || file.size > maxResumeBytes) return { error: invalidDocx };
   const url = new URL(file.url);
-  if (!isDiscordAttachment(url) || !/\.docx$/i.test(file.filename) || file.size > maxResumeBytes) return;
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(12_000) });
-  if (!response.ok || !response.body || Number(response.headers.get("content-length")) > maxResumeBytes) return;
+  if (!isDiscordAttachment(url)) return { error: downloadFailed };
+  const response = await fetch(url, {
+    redirect: "error", cache: "no-store", signal: AbortSignal.timeout(12_000),
+  }).catch(() => undefined);
+  if (!response?.ok || !response.body) return { error: downloadFailed };
+  if (Number(response.headers.get("content-length")) > maxResumeBytes) {
+    await response.body.cancel();
+    return { error: invalidDocx };
+  }
 
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -78,16 +88,19 @@ async function downloadDocx(file: Attachment) {
       length += chunk.value.byteLength;
       if (length > maxResumeBytes) {
         await reader.cancel();
-        return;
+        return { error: invalidDocx };
       }
       chunks.push(chunk.value);
     }
+  } catch {
+    return { error: downloadFailed };
   } finally {
     reader.releaseLock();
   }
   const content = Buffer.concat(chunks, length);
-  if (length !== file.size || resumeMimeType(file.filename, content) !== docxMimeType) return;
-  return content;
+  if (length !== file.size) return { error: downloadFailed };
+  if (resumeMimeType(file.filename, content) !== docxMimeType) return { error: invalidDocx };
+  return { document: content };
 }
 
 function safeFilename(filename: string) {
@@ -99,8 +112,8 @@ function safeFilename(filename: string) {
 async function uploadResume(interactionId: string, file: Attachment, makeDefault: boolean, storage: typeof privateStorage) {
   const [prior] = await db().select().from(interactions).where(eq(interactions.id, interactionId));
   if (prior) return prior.reply;
-  const document = await downloadDocx(file);
-  if (!document) return "Attach a valid .docx resume up to 8 MB.";
+  const download = await downloadDocx(file);
+  if ("error" in download) return download.error;
 
   const pathname = `resumes/discord-${interactionId}.docx`;
   const filename = safeFilename(file.filename);
@@ -111,7 +124,7 @@ async function uploadResume(interactionId: string, file: Attachment, makeDefault
     const [record] = await tx.select().from(resumes).where(eq(resumes.pathname, pathname)).for("update");
     if (!record || record.deleteRequestedAt) throw new Error("Resume upload expired");
     if (!record.uploadedAt) {
-      await storage.upload(pathname, document);
+      await storage.upload(pathname, download.document);
       await tx.update(resumes).set({ uploadedAt: new Date() }).where(eq(resumes.id, record.id));
     }
     const selected = makeDefault || !library.defaultResumeId;
