@@ -13,13 +13,19 @@ export async function POST(request: Request) {
     return new Response("Invalid signature", { status: 401 });
   }
 
-  let interaction;
+  let payload: unknown;
   try {
-    interaction = interactionSchema.parse(JSON.parse(body));
+    payload = JSON.parse(body);
   } catch {
     return new Response("Invalid interaction", { status: 400 });
   }
-  if (interaction.type === 1) return Response.json({ type: 1 });
+  if (payload && typeof payload === "object" && "type" in payload && payload.type === 1) {
+    return Response.json({ type: 1 });
+  }
+
+  const parsed = interactionSchema.safeParse(payload);
+  if (!parsed.success) return new Response("Invalid interaction", { status: 400 });
+  const interaction = parsed.data;
   if (interaction.application_id !== required("DISCORD_APPLICATION_ID")) {
     return new Response("Invalid application", { status: 401 });
   }

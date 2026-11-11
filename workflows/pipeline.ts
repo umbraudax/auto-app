@@ -2,7 +2,6 @@ import type { Board } from "../lib/config";
 import { db } from "../lib/db";
 import { ingest, scoreOne } from "../lib/discovery";
 import { deliverOne } from "../lib/notifications";
-import { previewOne } from "../lib/previews";
 import { purgeResumes } from "../lib/resumes";
 import { events } from "../lib/schema";
 import { makeDigest } from "../lib/state";
@@ -29,6 +28,7 @@ async function scoreBatch() {
 
 async function prepareNext() {
   "use step";
+  const { previewOne } = await import("../lib/previews");
   return previewOne();
 }
 
